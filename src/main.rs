@@ -11,7 +11,7 @@ use clap::Parser;
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use serde::Serialize;
-use std::fs::File;
+use std::fs::{File, OpenOptions};
 use std::io::prelude::*;
 
 /// Simple program to greet a person
@@ -24,7 +24,7 @@ struct Args {
 
     /// Output blockmap file
     #[clap(short, long)]
-    output: String,
+    output: Option<String>,
 
     /// Use zip file boundaries for splitting chunks
     #[clap(short, long)]
@@ -60,7 +60,7 @@ fn main() -> std::io::Result<()> {
         ..ChunkerOptions::default()
     });
 
-    let mut input = File::open(args.input)?;
+    let mut input = File::open(&args.input)?;
     let mut buffer = [0; 16384];
 
     let mut chunks = Vec::new();
@@ -96,7 +96,12 @@ fn main() -> std::io::Result<()> {
     let mut encoder = GzEncoder::new(Vec::new(), Compression::best());
     encoder.write_all(json.as_bytes())?;
 
-    let mut output = File::create(args.output)?;
+    let mut output = match args.output {
+        // Create new file
+        Some(path) => File::create(path)?,
+        // Append to input
+        None => OpenOptions::new().append(true).open(&args.input)?,
+    };
     output.write_all(&encoder.finish()?)?;
 
     println!("{}", serde_json::to_string(&JSONStats {
