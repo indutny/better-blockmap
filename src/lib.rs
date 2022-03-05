@@ -91,6 +91,7 @@ pub struct Chunker {
     hash: u64,
     hash_mask: u64,
     window: Vec<u8>,
+    window_size: usize,
     window_offset: usize,
     chunk_size: usize,
     degree: u32,
@@ -106,6 +107,7 @@ impl Chunker {
         assert!(Integer::from(options.avg_chunk).is_power_of_two());
 
         let hash_mask = options.avg_chunk - 1;
+        let window_size = options.window_size;
 
         let modulo = Integer::from(POLYNOMIAL);
         let degree = modulo.significant_bits();
@@ -116,6 +118,7 @@ impl Chunker {
             hash: 0,
             hash_mask: hash_mask as u64,
             window,
+            window_size,
             window_offset: 0,
             chunk_size: 0,
             degree,
@@ -136,6 +139,8 @@ impl Chunker {
         self.total_size += data.len();
 
         for i in 0..data.len() {
+            self.chunk_size += 1;
+
             if self.options.detect_zip_boundary && self.zip_header_offset < ZIP_HEADER.len() {
                 let b = data[i];
                 if ZIP_HEADER[self.zip_header_offset] == b {
@@ -147,9 +152,8 @@ impl Chunker {
 
             let seen_zip_header = self.zip_header_offset == ZIP_HEADER.len();
 
-            // Skip until we are 8 bytes behind minimum chunk size
-            if self.chunk_size + 8 <= self.options.min_chunk && !seen_zip_header {
-                self.chunk_size += 1;
+            // Skip until we are `window_size`  bytes behind minimum chunk size
+            if self.chunk_size + self.window_size <= self.options.min_chunk && !seen_zip_header {
                 continue;
             }
 
@@ -164,11 +168,10 @@ impl Chunker {
             self.hash ^= self.table.drop[dropped_byte];
             self.hash ^= self.table.shift[shifted_byte as usize];
 
-            self.chunk_size += 1;
-
-            if !seen_zip_header
-                && self.chunk_size < self.options.max_chunk
-                && (self.hash & self.hash_mask) != self.hash_mask
+            if !(seen_zip_header
+                || (self.chunk_size >= self.options.min_chunk
+                    && (self.hash & self.hash_mask) == self.hash_mask)
+                || self.chunk_size >= self.options.max_chunk)
             {
                 continue;
             }
@@ -241,6 +244,15 @@ mod tests {
 
         assert_eq!(table.shift[8], 4548086706303466141);
         assert_eq!(table.drop[8], 4180238687019168624);
+
+        assert_eq!(table.shift[75], 14406569746831191669);
+        assert_eq!(table.drop[75], 2590085172916931783);
+
+        assert_eq!(table.shift[182], 8333038893256783518);
+        assert_eq!(table.drop[182], 1155685809517156813);
+
+        assert_eq!(table.shift[255], 14665969062442009581);
+        assert_eq!(table.drop[255], 4429513017793006038);
     }
 
     #[test]
@@ -291,5 +303,22 @@ mod tests {
         }
 
         assert_eq!(chunks.len(), 24);
+    }
+
+    #[test]
+    fn it_doesnt_chunk_early_after_skipping() {
+        let mut chunker = Chunker::new(ChunkerOptions::default());
+
+        let mut chunks = Vec::new();
+        chunks.append(&mut chunker.update(&[0xff; 8 * 1024 + 8]));
+
+        let stats = chunker.finalize_reset();
+        assert_eq!(stats.size, 8 * 1024 + 8);
+
+        if let Some(x) = stats.last_chunk {
+            chunks.push(x);
+        }
+
+        assert_eq!(chunks.len(), 1);
     }
 }
