@@ -1,5 +1,3 @@
-extern crate blake2;
-
 use blake2::{Blake2b, Digest};
 use sha2::Sha512;
 use std::collections::LinkedList;

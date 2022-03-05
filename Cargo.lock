@@ -43,6 +43,7 @@ version = "2.0.0"
 dependencies = [
  "base64",
  "blake2",
+ "byteorder",
  "clap",
  "flate2",
  "rug",
@@ -74,6 +75,12 @@ checksum = "0bf7fe51849ea569fd452f37822f606a5cabb684dc918707a0193fd4664ff324"
 dependencies = [
  "generic-array",
 ]
+
+[[package]]
+name = "byteorder"
+version = "1.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "14c189c53d098945499cdfa7ecc63567cf3886b3332b312a5b4585d8d3a6a610"
 
 [[package]]
 name = "cfg-if"

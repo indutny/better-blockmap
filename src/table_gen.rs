@@ -1,7 +1,7 @@
-extern crate rug;
-
 use crate::table::*;
 use rug::Integer;
+
+pub const POLYNOMIAL: u64 = 0xbfe6b8a5bf378d83;
 
 fn reduce(value: Integer, modulo: &Integer) -> u64 {
     let modulo_bits = modulo.significant_bits();

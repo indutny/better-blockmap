@@ -1,12 +1,6 @@
-extern crate base64;
-extern crate better_blockmap;
-extern crate clap;
-extern crate flate2;
-extern crate serde;
-extern crate serde_json;
-
 use better_blockmap::*;
 
+use byteorder::{LittleEndian, WriteBytesExt};
 use clap::Parser;
 use flate2::write::{DeflateEncoder, GzEncoder};
 use flate2::Compression;
@@ -119,13 +113,18 @@ fn main() -> std::io::Result<()> {
         }
     };
 
-    let mut output = match args.output {
+    let mut output = match &args.output {
         // Create new file
         Some(path) => File::create(path)?,
         // Append to input
         None => OpenOptions::new().append(true).open(&args.input)?,
     };
     output.write_all(&compressed)?;
+    if args.output.is_none() {
+        let mut size = vec![];
+        size.write_u32::<LittleEndian>(compressed.len() as u32)?;
+        output.write_all(&size)?;
+    }
 
     println!(
         "{}",
