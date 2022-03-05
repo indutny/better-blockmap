@@ -79,20 +79,17 @@ fn main() -> std::io::Result<()> {
     let mut input = File::open(&args.input)?;
     let mut buffer = [0; 16384];
 
-    let mut chunks = Vec::new();
     loop {
         let bytes_read = input.read(&mut buffer).expect("Failed to read bytes");
 
-        chunks.append(&mut chunker.update(&buffer[0..bytes_read]));
+        chunker.update(&buffer[0..bytes_read]);
         if bytes_read != buffer.len() {
             break;
         }
     }
 
     let stats = chunker.finalize_reset();
-    if let Some(last_chunk) = stats.last_chunk {
-        chunks.push(last_chunk)
-    }
+    let chunks: Vec<Chunk> = chunker.collect();
 
     let blockmap = Blockmap {
         version: "2".to_string(),

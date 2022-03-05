@@ -2,6 +2,7 @@ extern crate blake2;
 
 use blake2::{Blake2b, Digest};
 use sha2::Sha512;
+use std::collections::LinkedList;
 use std::default::Default;
 
 mod table;
@@ -45,7 +46,6 @@ pub struct Chunk {
 pub struct Stats {
     pub size: usize,
     pub sha512: Vec<u8>,
-    pub last_chunk: Option<Chunk>,
 }
 
 pub struct Chunker {
@@ -61,6 +61,7 @@ pub struct Chunker {
     digest: Sha512,
     total_size: usize,
     zip_header_offset: usize,
+    chunks: LinkedList<Chunk>,
 }
 
 impl Chunker {
@@ -79,14 +80,14 @@ impl Chunker {
             digest: Sha512::new(),
             total_size: 0,
             zip_header_offset: 0,
+            chunks: LinkedList::new(),
 
             options,
         }
     }
 
-    pub fn update(&mut self, data: &[u8]) -> Vec<Chunk> {
+    pub fn update(&mut self, data: &[u8]) {
         let window_size = self.options.window_size;
-        let mut result = Vec::new();
 
         let mut chunk_start = 0;
 
@@ -132,7 +133,7 @@ impl Chunker {
             }
 
             self.chunk_digest.update(&data[chunk_start..=i]);
-            result.push(Chunk {
+            self.chunks.push_back(Chunk {
                 size: self.chunk_size,
                 digest: self.chunk_digest.finalize_reset().to_vec(),
             });
@@ -143,8 +144,6 @@ impl Chunker {
         if chunk_start < data.len() {
             self.chunk_digest.update(&data[chunk_start..]);
         }
-
-        result
     }
 
     pub fn finalize_reset(&mut self) -> Stats {
@@ -155,19 +154,16 @@ impl Chunker {
         self.total_size = 0;
         self.reset();
 
-        let last_chunk = if chunk_size == 0 {
-            None
-        } else {
-            Some(Chunk {
+        if chunk_size != 0 {
+            self.chunks.push_back(Chunk {
                 size: chunk_size,
                 digest: digest.to_vec(),
             })
-        };
+        }
 
         Stats {
             size: total_size,
             sha512: self.digest.finalize_reset().to_vec(),
-            last_chunk,
         }
     }
 
@@ -176,6 +172,14 @@ impl Chunker {
         self.chunk_size = 0;
         self.zip_header_offset = 0;
         self.window.fill(0);
+    }
+}
+
+impl Iterator for Chunker {
+    type Item = Chunk;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.chunks.pop_front()
     }
 }
 
@@ -219,35 +223,25 @@ mod tests {
 
         let size: usize = 256 * 1024;
 
-        let mut chunks = Vec::new();
         for _i in 0..size {
-            chunks.append(&mut chunker.update(&[0x33, 0x31, 0x85]));
+            chunker.update(&[0x33, 0x31, 0x85]);
         }
 
         let stats = chunker.finalize_reset();
         assert_eq!(stats.size, size * 3);
 
-        if let Some(x) = stats.last_chunk {
-            chunks.push(x);
-        }
-
-        assert_eq!(chunks.len(), 24);
+        assert_eq!(chunker.count(), 24);
     }
 
     #[test]
     fn it_doesnt_chunk_early_after_skipping() {
         let mut chunker = Chunker::new(ChunkerOptions::default());
 
-        let mut chunks = Vec::new();
-        chunks.append(&mut chunker.update(&[0xff; 8 * 1024 + 8]));
+        chunker.update(&[0xff; 8 * 1024 + 8]);
 
         let stats = chunker.finalize_reset();
         assert_eq!(stats.size, 8 * 1024 + 8);
 
-        if let Some(x) = stats.last_chunk {
-            chunks.push(x);
-        }
-
-        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunker.count(), 1);
     }
 }
