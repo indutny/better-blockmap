@@ -40,6 +40,12 @@ struct BlockmapFile {
 }
 
 #[derive(Serialize)]
+struct JSONStats {
+    size: usize,
+    sha512: String,
+}
+
+#[derive(Serialize)]
 struct Blockmap {
     version: String,
     files: Vec<BlockmapFile>,
@@ -66,8 +72,10 @@ fn main() -> std::io::Result<()> {
             break;
         }
     }
-    if let Some(last) = chunker.flush() {
-        chunks.push(last)
+
+    let stats = chunker.finalize_reset();
+    if let Some(last_chunk) = stats.last_chunk {
+        chunks.push(last_chunk)
     }
 
     let blockmap = Blockmap {
@@ -90,6 +98,11 @@ fn main() -> std::io::Result<()> {
 
     let mut output = File::create(args.output)?;
     output.write_all(&encoder.finish()?)?;
+
+    println!("{}", serde_json::to_string(&JSONStats {
+        size: stats.size,
+        sha512: base64::encode(&stats.sha512),
+    }).expect("JSON serialization"));
 
     Ok(())
 }

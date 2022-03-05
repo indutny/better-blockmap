@@ -2,6 +2,7 @@ extern crate blake2;
 extern crate rug;
 
 use blake2::{Blake2b, Digest};
+use sha2::{Sha512};
 use rug::Integer;
 use std::default::Default;
 
@@ -78,6 +79,12 @@ pub struct Chunk {
     pub digest: Vec<u8>,
 }
 
+pub struct Stats {
+    pub size: usize,
+    pub sha512: Vec<u8>,
+    pub last_chunk: Option<Chunk>,
+}
+
 pub struct Chunker {
     table: Table,
     options: ChunkerOptions,
@@ -87,7 +94,9 @@ pub struct Chunker {
     window_offset: usize,
     chunk_size: usize,
     degree: u32,
-    digest: Blake2b<blake2::digest::consts::U18>,
+    chunk_digest: Blake2b<blake2::digest::consts::U18>,
+    digest: Sha512,
+    total_size: usize,
     zip_header_offset: usize,
 }
 
@@ -110,7 +119,9 @@ impl Chunker {
             window_offset: 0,
             chunk_size: 0,
             degree,
-            digest: Blake2b::new(),
+            chunk_digest: Blake2b::new(),
+            digest: Sha512::new(),
+            total_size: 0,
             zip_header_offset: 0,
         }
     }
@@ -120,6 +131,9 @@ impl Chunker {
         let mut result = Vec::new();
 
         let mut chunk_start = 0;
+
+        self.digest.update(data);
+        self.total_size += data.len();
 
         for i in 0..data.len() {
             if self.options.zip_boundary && self.zip_header_offset < ZIP_HEADER.len() {
@@ -159,34 +173,43 @@ impl Chunker {
                 continue;
             }
 
-            self.digest.update(&data[chunk_start..=i]);
+            self.chunk_digest.update(&data[chunk_start..=i]);
             result.push(Chunk {
                 size: self.chunk_size,
-                digest: self.digest.finalize_reset().to_vec(),
+                digest: self.chunk_digest.finalize_reset().to_vec(),
             });
             chunk_start = i + 1;
             self.reset();
         }
 
         if chunk_start < data.len() {
-            self.digest.update(&data[chunk_start..])
+            self.chunk_digest.update(&data[chunk_start..]);
         }
 
         result
     }
 
-    pub fn flush(&mut self) -> Option<Chunk> {
+    pub fn finalize_reset(&mut self) -> Stats {
+        let total_size = self.total_size;
         let chunk_size = self.chunk_size;
-        let digest = self.digest.finalize_reset();
+        let digest = self.chunk_digest.finalize_reset();
 
+        self.total_size = 0;
         self.reset();
-        if chunk_size == 0 {
+
+        let last_chunk = if chunk_size == 0 {
             None
         } else {
             Some(Chunk {
                 size: chunk_size,
                 digest: digest.to_vec(),
             })
+        };
+
+        Stats {
+            size: total_size,
+            sha512: self.digest.finalize_reset().to_vec(),
+            last_chunk,
         }
     }
 
@@ -253,15 +276,17 @@ mod tests {
     fn it_computes_chunks() {
         let mut chunker = Chunker::new(ChunkerOptions::default());
 
-        let size: u64 = 256 * 1024;
+        let size: usize = 256 * 1024;
 
         let mut chunks = Vec::new();
         for _i in 0..size {
             chunks.append(&mut chunker.update(&[0x33, 0x31, 0x85]));
         }
 
-        let last = chunker.flush();
-        if let Some(x) = last {
+        let stats = chunker.finalize_reset();
+        assert_eq!(stats.size, size * 3);
+
+        if let Some(x) = stats.last_chunk {
             chunks.push(x);
         }
 
