@@ -19,12 +19,13 @@ Fedor Indutny <fedor@indutny.com>
 Generate better blockmap files for electron-builder
 
 USAGE:
-    better-blockmap [OPTIONS] --input <INPUT> --output <OUTPUT>
+    better-blockmap [OPTIONS] --input <INPUT>
 
 OPTIONS:
-    -h, --help               Print help information
-    -i, --input <INPUT>      Input binary file
-    -o, --output <OUTPUT>    Output blockmap file
-    -V, --version            Print version information
-    -z, --zip-boundary       Use zip file boundaries for splitting chunks
+    -c, --compression <COMPRESSION>    Compression [default: gzip] [possible values: gzip, deflate]
+    -h, --help                         Print help information
+    -i, --input <INPUT>                Input binary file
+    -o, --output <OUTPUT>              Output blockmap file
+    -V, --version                      Print version information
+    -z, --detect-zip-boundary          Use zip file boundaries for splitting chunks
 ```
