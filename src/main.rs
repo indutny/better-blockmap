@@ -8,13 +8,25 @@ extern crate serde_json;
 use better_blockmap::*;
 
 use clap::Parser;
-use flate2::write::GzEncoder;
+use flate2::write::{DeflateEncoder, GzEncoder};
 use flate2::Compression;
 use serde::Serialize;
+use std::default::Default;
 use std::fs::{File, OpenOptions};
 use std::io::prelude::*;
 
-/// Simple program to greet a person
+#[derive(clap::ArgEnum, PartialEq, Debug, Clone)]
+enum CompressionType {
+    Gzip,
+    Deflate,
+}
+
+impl Default for CompressionType {
+    fn default() -> Self {
+        CompressionType::Gzip
+    }
+}
+
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
@@ -25,6 +37,10 @@ struct Args {
     /// Output blockmap file
     #[clap(short, long)]
     output: Option<String>,
+
+    /// Compression
+    #[clap(short, long, arg_enum, default_value_t)]
+    compression: CompressionType,
 
     /// Use zip file boundaries for splitting chunks
     #[clap(short, long)]
@@ -93,8 +109,18 @@ fn main() -> std::io::Result<()> {
 
     let json = serde_json::to_string(&blockmap).expect("JSON serialization");
 
-    let mut encoder = GzEncoder::new(Vec::new(), Compression::best());
-    encoder.write_all(json.as_bytes())?;
+    let compressed = match args.compression {
+        CompressionType::Gzip => {
+            let mut encoder = GzEncoder::new(Vec::new(), Compression::best());
+            encoder.write_all(json.as_bytes())?;
+            encoder.finish()?
+        }
+        CompressionType::Deflate => {
+            let mut encoder = DeflateEncoder::new(Vec::new(), Compression::best());
+            encoder.write_all(json.as_bytes())?;
+            encoder.finish()?
+        }
+    };
 
     let mut output = match args.output {
         // Create new file
@@ -102,12 +128,16 @@ fn main() -> std::io::Result<()> {
         // Append to input
         None => OpenOptions::new().append(true).open(&args.input)?,
     };
-    output.write_all(&encoder.finish()?)?;
+    output.write_all(&compressed)?;
 
-    println!("{}", serde_json::to_string(&JSONStats {
-        size: stats.size,
-        sha512: base64::encode(&stats.sha512),
-    }).expect("JSON serialization"));
+    println!(
+        "{}",
+        serde_json::to_string(&JSONStats {
+            size: stats.size,
+            sha512: base64::encode(&stats.sha512),
+        })
+        .expect("JSON serialization")
+    );
 
     Ok(())
 }

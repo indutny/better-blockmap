@@ -2,8 +2,8 @@ extern crate blake2;
 extern crate rug;
 
 use blake2::{Blake2b, Digest};
-use sha2::{Sha512};
 use rug::Integer;
+use sha2::Sha512;
 use std::default::Default;
 
 const POLYNOMIAL: u64 = 0xbfe6b8a5bf378d83;
