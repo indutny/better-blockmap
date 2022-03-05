@@ -1,56 +1,19 @@
 extern crate blake2;
-extern crate rug;
 
 use blake2::{Blake2b, Digest};
-use rug::Integer;
 use sha2::Sha512;
 use std::default::Default;
 
-const POLYNOMIAL: u64 = 0xbfe6b8a5bf378d83;
-static ZIP_HEADER: [u8; 4] = [0x50, 0x4b, 0x03, 0x04];
+mod table;
+#[cfg(not(feature = "window_size"))]
+mod table_const;
+#[cfg(feature = "window_size")]
+mod table_gen;
 
-fn reduce(value: Integer, modulo: &Integer) -> u64 {
-    let modulo_bits = modulo.significant_bits();
-    let value_bits = value.significant_bits();
-    if value_bits < modulo_bits {
-        return value.to_u64_wrapping();
-    }
+use crate::table::*;
 
-    let delta = value_bits - modulo_bits;
-
-    let mut result = value;
-    for i in (0..=delta).rev() {
-        if result.get_bit(modulo_bits + i - 1) {
-            result ^= modulo.clone() << i;
-        }
-    }
-
-    result.to_u64_wrapping()
-}
-
-pub struct Table {
-    shift: [u64; 256],
-    drop: [u64; 256],
-}
-
-impl Table {
-    pub fn new(window_size: usize) -> Self {
-        let mut res = Self {
-            shift: [0; 256],
-            drop: [0; 256],
-        };
-
-        let modulo = Integer::from(POLYNOMIAL);
-        let degree = modulo.significant_bits();
-
-        for i in 0..256 {
-            res.shift[i] =
-                reduce(Integer::from(i) << (degree - 1), &modulo) ^ (i << (degree - 1)) as u64;
-            res.drop[i] = reduce(Integer::from(i) << (window_size * 8), &modulo);
-        }
-        res
-    }
-}
+const DEGREE: usize = 64;
+const ZIP_HEADER: [u8; 4] = [0x50, 0x4b, 0x03, 0x04];
 
 #[derive(Debug)]
 pub struct ChunkerOptions {
@@ -64,7 +27,7 @@ pub struct ChunkerOptions {
 impl Default for ChunkerOptions {
     fn default() -> Self {
         Self {
-            window_size: 64,
+            window_size: DEFAULT_WINDOW_SIZE,
             min_chunk: 8 * 1024,
             avg_chunk: 16 * 1024,
             max_chunk: 32 * 1024,
@@ -94,7 +57,6 @@ pub struct Chunker {
     window_size: usize,
     window_offset: usize,
     chunk_size: usize,
-    degree: u32,
     chunk_digest: Blake2b<blake2::digest::consts::U18>,
     digest: Sha512,
     total_size: usize,
@@ -103,29 +65,22 @@ pub struct Chunker {
 
 impl Chunker {
     pub fn new(options: ChunkerOptions) -> Self {
-        let window = vec![0; options.window_size];
-        assert!(Integer::from(options.avg_chunk).is_power_of_two());
-
         let hash_mask = options.avg_chunk - 1;
-        let window_size = options.window_size;
-
-        let modulo = Integer::from(POLYNOMIAL);
-        let degree = modulo.significant_bits();
 
         Self {
             table: Table::new(options.window_size),
-            options,
             hash: 0,
             hash_mask: hash_mask as u64,
-            window,
-            window_size,
+            window: vec![0; options.window_size],
+            window_size: options.window_size,
             window_offset: 0,
             chunk_size: 0,
-            degree,
             chunk_digest: Blake2b::new(),
             digest: Sha512::new(),
             total_size: 0,
             zip_header_offset: 0,
+
+            options,
         }
     }
 
@@ -159,7 +114,7 @@ impl Chunker {
 
             let b = data[i];
             let dropped_byte = self.window[self.window_offset] as usize;
-            let shifted_byte = self.hash >> (self.degree - 8 - 1);
+            let shifted_byte = self.hash >> (DEGREE - 8 - 1);
             self.window[self.window_offset] = b;
             self.window_offset = (self.window_offset + 1) % window_size;
 
@@ -230,32 +185,8 @@ mod tests {
 
     use super::*;
 
-    fn assert_is_field_value(hash: u64) {
-        let modulo = Integer::from(POLYNOMIAL);
-        assert_eq!(hash, reduce(Integer::from(hash), &modulo));
-    }
-
     #[test]
-    fn it_computes_correct_table() {
-        let table = Table::new(64);
-
-        assert_eq!(table.shift[0], 0);
-        assert_eq!(table.drop[0], 0);
-
-        assert_eq!(table.shift[8], 4548086706303466141);
-        assert_eq!(table.drop[8], 4180238687019168624);
-
-        assert_eq!(table.shift[75], 14406569746831191669);
-        assert_eq!(table.drop[75], 2590085172916931783);
-
-        assert_eq!(table.shift[182], 8333038893256783518);
-        assert_eq!(table.drop[182], 1155685809517156813);
-
-        assert_eq!(table.shift[255], 14665969062442009581);
-        assert_eq!(table.drop[255], 4429513017793006038);
-    }
-
-    #[test]
+    #[cfg(feature = "window_size")]
     fn it_computes_rolling_hash() {
         let mut chunker = Chunker::new(ChunkerOptions {
             window_size: 16,
@@ -270,14 +201,12 @@ mod tests {
         for i in 0..1024u64 {
             chunker.update(&[(i & 0xff) as u8]);
         }
-        assert_is_field_value(chunker.hash);
         let rolling_hash = chunker.hash;
 
         chunker.reset();
         for i in (1024 - 16)..1024u64 {
             chunker.update(&[(i & 0xff) as u8]);
         }
-        assert_is_field_value(chunker.hash);
         let non_rolling_hash = chunker.hash;
         assert_eq!(rolling_hash, non_rolling_hash);
 
