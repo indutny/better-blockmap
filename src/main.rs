@@ -43,8 +43,8 @@ struct Args {
     compression: CompressionType,
 
     /// Use zip file boundaries for splitting chunks
-    #[clap(short, long)]
-    zip_boundary: bool,
+    #[clap(short = 'z', long)]
+    detect_zip_boundary: bool,
 }
 
 #[derive(Serialize)]
@@ -71,7 +71,7 @@ fn main() -> std::io::Result<()> {
     let args = Args::parse();
 
     let mut chunker = Chunker::new(ChunkerOptions {
-        zip_boundary: args.zip_boundary,
+        detect_zip_boundary: args.detect_zip_boundary,
 
         ..ChunkerOptions::default()
     });

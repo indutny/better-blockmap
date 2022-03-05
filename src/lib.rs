@@ -58,7 +58,7 @@ pub struct ChunkerOptions {
     pub min_chunk: usize,
     pub avg_chunk: usize,
     pub max_chunk: usize,
-    pub zip_boundary: bool,
+    pub detect_zip_boundary: bool,
 }
 
 impl Default for ChunkerOptions {
@@ -68,7 +68,7 @@ impl Default for ChunkerOptions {
             min_chunk: 8 * 1024,
             avg_chunk: 16 * 1024,
             max_chunk: 32 * 1024,
-            zip_boundary: false,
+            detect_zip_boundary: false,
         }
     }
 }
@@ -136,7 +136,7 @@ impl Chunker {
         self.total_size += data.len();
 
         for i in 0..data.len() {
-            if self.options.zip_boundary && self.zip_header_offset < ZIP_HEADER.len() {
+            if self.options.detect_zip_boundary && self.zip_header_offset < ZIP_HEADER.len() {
                 let b = data[i];
                 if ZIP_HEADER[self.zip_header_offset] == b {
                     self.zip_header_offset += 1;
@@ -252,7 +252,7 @@ mod tests {
 
             // Make sure we never chunk for this test
             avg_chunk: 1024 * 1024,
-            zip_boundary: false,
+            detect_zip_boundary: false,
         });
 
         for i in 0..1024u64 {
